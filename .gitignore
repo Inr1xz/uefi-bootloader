@@ -1,3 +1,13 @@
+# edk2 build outputs
+edk2/Build/
+edk2/Conf/
+
+# qemu runtime artifacts
+OVMF_VARS*.fd
+uefi_share/
+*.img
+
+# misc
 *.log
-*.out
 *.swp
+.vscode/

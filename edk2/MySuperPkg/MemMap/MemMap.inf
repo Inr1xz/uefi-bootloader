@@ -1,0 +1,21 @@
+[Defines]
+  INF_VERSION    = 0x00010025
+  BASE_NAME      = MemMap
+  FILE_GUID      = 11111111-2222-3333-4444-555555555555
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = UefiMain
+
+[Sources]
+  MemMap.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MySuperPkg/MySuperPkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  PrintLib
+  UefiBootServicesTableLib
+  MemoryAllocationLib

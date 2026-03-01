@@ -1,0 +1,5 @@
+[Defines]
+  DEC_SPECIFICATION  = 0x00010005
+  PACKAGE_NAME       = MySuperPkg
+  PACKAGE_GUID       = 6abec441-198c-404d-b928-07a7a27dc2b8
+  PACKAGE_VERSION    = 1.0
