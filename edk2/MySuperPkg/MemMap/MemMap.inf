@@ -1,19 +1,26 @@
+# Описание UEFI-приложения
+# EDK2 по этому файлу понимает чем линковать .c
 [Defines]
+# Общие параметры модуля 
   INF_VERSION    = 0x00010025
   BASE_NAME      = MemMap
   FILE_GUID      = 11111111-2222-3333-4444-555555555555
-  MODULE_TYPE    = UEFI_APPLICATION
+  MODULE_TYPE    = UEFI_APPLICATION                       # UEFI-приложение (а не драйвер)
   VERSION_STRING = 1.0
-  ENTRY_POINT    = UefiMain
+  ENTRY_POINT    = UefiMain                               # Имя функции, с которой управление начнет выполнение (в .c)
 
 [Sources]
+# Список исходников 
   MemMap.c
 
 [Packages]
+# Какие dec пакеты доступны этому модулю
   MdePkg/MdePkg.dec
   MySuperPkg/MySuperPkg.dec
 
 [LibraryClasses]
+# Какие библиотечные классы нужны этому модулю
+# Их реализации берутся в .dsc в [LibraryClasses]
   UefiApplicationEntryPoint
   UefiLib
   PrintLib
