@@ -3,35 +3,41 @@
 #include <Library/UefiBootServicesTableLib.h>
 #include <Library/MemoryAllocationLib.h>
 
+/*
+UEFI возвращает много типов памяти, но мы глобально делаим их на две категории: 
+1) доступная нам 
+2) недоступная нам
+*/
 typedef enum {
-  MmapEntryType_NotAvailable,
-  MmapEntryType_Available
+  MmapEntryType_NotAvailable,         // Считаем участок памяти недоступным
+  MmapEntryType_Available             // Считаем участок памяти доступным
 } MmapEntryType;
 
+/*
+Структура, описывающая один участок памяти в нашей собственной карте памяти
+Мы берем стандартный дескриптор UEFI и превращаем его в более простой формат:
+addr + size + type 
+*/
 typedef struct _MmapEntry {
-  UINT64 addr;   // Начальный адрес региона
-  UINT64 size;   // Размер региона в байтах
-  UINT8  type;   // Наш упрощённый тип: доступен / недоступен
+  UINT64 addr;                        // Начальный физический адрес участка памяти
+  UINT64 size;                        // Размер участка памяти в байтах
+  UINT8  type;                        // Наш тип: доступен / недоступен
 } MmapEntry;
 
+/*
+Структура, описывающая всю нашу карту памяти в целом
+*/
 typedef struct _Mmap {
-  UINT64 size;       // Количество записей
-  MmapEntry entries[];
+  UINT64 size;                        // Количество записей в карте памяти (сколько участков памяти содержится в массиве entries[])
+  MmapEntry entries[];                // Массив записей, хранящий все участки памяти один за другим  
 } Mmap;
 
-/**
-  Получить карту памяти UEFI.
-  Функция сама обрабатывает EFI_BUFFER_TOO_SMALL в цикле.
-
-  @param[out] OutMemoryMap        Указатель на буфер с картой памяти
-  @param[out] OutMemoryMapSize    Размер карты памяти в байтах
-  @param[out] OutMapKey           Ключ карты памяти
-  @param[out] OutDescriptorSize   Размер одного дескриптора
-  @param[out] OutDescriptorVersion Версия дескриптора
-
-  @retval EFI_SUCCESS             Карта памяти успешно получена
-  @retval другое значение         Ошибка
-**/
+/*
+Функция получения карты памяти UEFI:
+1) Узнаем новый размер буфера
+2) Если буфер мал - увеличиваем его
+3) Повторяем это в цикле, пока не получим карту памяти успешно
+*/ 
 EFI_STATUS
 GetUefiMemoryMap(
   EFI_MEMORY_DESCRIPTOR **OutMemoryMap,
@@ -41,12 +47,12 @@ GetUefiMemoryMap(
   UINT32 *OutDescriptorVersion
 )
 {
-  EFI_STATUS s;
-  EFI_MEMORY_DESCRIPTOR *mmap = NULL;
-  UINTN mmap_size = 0;
-  UINTN mmap_key = 0;
-  UINTN dscr_size = 0;
-  UINT32 dscr_vers = 0;
+  EFI_STATUS s;                       // Храним результаты вызовов функций UEFI (EFI_SUCCESS, EFI_BUFFER_TOO_SMALL)
+  EFI_MEMORY_DESCRIPTOR *mmap = NULL; // Указатель на буфер куда UEFI запишет карту памяти, NULL потому что память ешё не выделена
+  UINTN mmap_size = 0;                // Размер буфера под карту памяти
+  UINTN mmap_key = 0;                 // Ключ карты памяти, важен для ExitBootServices()
+  UINTN dscr_size = 0;                // Размер одного дескриптора
+  UINT32 dscr_vers = 0;               // Версия структуры дискриптора памяти
 
   while (1) {
     s = gBS->GetMemoryMap(
@@ -92,17 +98,7 @@ GetUefiMemoryMap(
   }
 }
 
-/**
-  Преобразовать стандартную карту памяти UEFI в нашу упрощённую структуру.
 
-  @param[in]  mmap        Исходная карта памяти UEFI
-  @param[in]  mmap_size   Общий размер карты памяти
-  @param[in]  dscr_size   Размер одного дескриптора
-  @param[out] OutNewMap   Новый перепакованный mmap
-
-  @retval EFI_SUCCESS     Успех
-  @retval другое значение Ошибка
-**/
 EFI_STATUS
 ConvertMemoryMap(
   EFI_MEMORY_DESCRIPTOR *mmap,
