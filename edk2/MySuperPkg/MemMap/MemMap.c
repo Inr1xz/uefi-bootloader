@@ -1,124 +1,236 @@
-// Логика программы, непосредственно UEFI-приложение 
-/*
-1. Через gBS->GetMemoryMap() дважды получает карту памяти:
-    первый раз — чтобы узнать нужный размер буфера,
-    второй раз — уже с выделенной памятью.
-2. Перепаковывает каждую запись EFI_MEMORY_DESCRIPTOR в свою структуру MY_MEMORY_REGION.
-3. Печатает табличку: индекс, тип, физический адрес, количество страниц, атрибуты.
-*/
-#include <Uefi.h>                               // Базовые типы и определения UEFI (EFI_STATUS, EFI_HANDLE и т.п).
-#include <Library/UefiLib.h>                    // Функции Print(), EFIAPI и разные вспомогательные утилиты
-#include <Library/UefiBootServicesTableLib.h>   // Доступ к глобальному указателю gBS (Boot Services)
-#include <Library/MemoryAllocationLib.h>        // AllocatePool(), FreePool() и работа с памятью
+#include <Uefi.h>
+#include <Library/UefiLib.h>
+#include <Library/UefiBootServicesTableLib.h>
+#include <Library/MemoryAllocationLib.h>
 
+typedef enum {
+  MmapEntryType_NotAvailable,
+  MmapEntryType_Available
+} MmapEntryType;
 
-// Собственная структура для хранения информации об одном регионе памяти
-// Это "перепакованный" вариант EFI_MEMORY_DESCRIPTOR
-typedef struct {
-  UINT32               Type;       // Тип памяти (EFI_MEMORY_TYPE)
-  EFI_PHYSICAL_ADDRESS PhysStart;  // Физический стартовый адрес региона
-  UINT64               NumPages;   // Количество страниц в регионе
-  UINT64               Attribute;  // Атрибуты (битовая маска EFI_MEMORY_xxx)
-} MY_MEMORY_REGION;
+typedef struct _MmapEntry {
+  UINT64 addr;   // Начальный адрес региона
+  UINT64 size;   // Размер региона в байтах
+  UINT8  type;   // Наш упрощённый тип: доступен / недоступен
+} MmapEntry;
 
-// Точка входа UEFI-приложения
-// Сигнатура задаётся UefiApplicationEntryPoint + ENTRY_POINT = UefiMain в .inf
+typedef struct _Mmap {
+  UINT64 size;       // Количество записей
+  MmapEntry entries[];
+} Mmap;
+
+/**
+  Получить карту памяти UEFI.
+  Функция сама обрабатывает EFI_BUFFER_TOO_SMALL в цикле.
+
+  @param[out] OutMemoryMap        Указатель на буфер с картой памяти
+  @param[out] OutMemoryMapSize    Размер карты памяти в байтах
+  @param[out] OutMapKey           Ключ карты памяти
+  @param[out] OutDescriptorSize   Размер одного дескриптора
+  @param[out] OutDescriptorVersion Версия дескриптора
+
+  @retval EFI_SUCCESS             Карта памяти успешно получена
+  @retval другое значение         Ошибка
+**/
+EFI_STATUS
+GetUefiMemoryMap(
+  EFI_MEMORY_DESCRIPTOR **OutMemoryMap,
+  UINTN *OutMemoryMapSize,
+  UINTN *OutMapKey,
+  UINTN *OutDescriptorSize,
+  UINT32 *OutDescriptorVersion
+)
+{
+  EFI_STATUS s;
+  EFI_MEMORY_DESCRIPTOR *mmap = NULL;
+  UINTN mmap_size = 0;
+  UINTN mmap_key = 0;
+  UINTN dscr_size = 0;
+  UINT32 dscr_vers = 0;
+
+  while (1) {
+    s = gBS->GetMemoryMap(
+              &mmap_size,
+              mmap,
+              &mmap_key,
+              &dscr_size,
+              &dscr_vers
+            );
+
+    if (s == EFI_SUCCESS) {
+      // Успешно получили карту памяти
+      *OutMemoryMap = mmap;
+      *OutMemoryMapSize = mmap_size;
+      *OutMapKey = mmap_key;
+      *OutDescriptorSize = dscr_size;
+      *OutDescriptorVersion = dscr_vers;
+      return EFI_SUCCESS;
+    }
+
+    if (s != EFI_BUFFER_TOO_SMALL) {
+      // Какая-то другая ошибка
+      if (mmap != NULL) {
+        gBS->FreePool(mmap);
+      }
+      return s;
+    }
+
+    // Если буфер маленький — освобождаем старый (если был)
+    if (mmap != NULL) {
+      gBS->FreePool(mmap);
+      mmap = NULL;
+    }
+
+    // Добавляем небольшой запас, потому что карта памяти
+    // может измениться между вызовами
+    mmap_size += 2 * dscr_size;
+
+    s = gBS->AllocatePool(EfiBootServicesData, mmap_size, (VOID **)&mmap);
+    if (EFI_ERROR(s)) {
+      return s;
+    }
+  }
+}
+
+/**
+  Преобразовать стандартную карту памяти UEFI в нашу упрощённую структуру.
+
+  @param[in]  mmap        Исходная карта памяти UEFI
+  @param[in]  mmap_size   Общий размер карты памяти
+  @param[in]  dscr_size   Размер одного дескриптора
+  @param[out] OutNewMap   Новый перепакованный mmap
+
+  @retval EFI_SUCCESS     Успех
+  @retval другое значение Ошибка
+**/
+EFI_STATUS
+ConvertMemoryMap(
+  EFI_MEMORY_DESCRIPTOR *mmap,
+  UINTN mmap_size,
+  UINTN dscr_size,
+  Mmap **OutNewMap
+)
+{
+  EFI_STATUS s;
+  UINT64 entries_count = mmap_size / dscr_size;
+
+  UINT64 new_mmap_size = sizeof(UINT64) + entries_count * sizeof(MmapEntry);
+  Mmap *new_mmap = NULL;
+
+  s = gBS->AllocatePool(EfiBootServicesData, new_mmap_size, (VOID **)&new_mmap);
+  if (EFI_ERROR(s)) {
+    return s;
+  }
+
+  new_mmap->size = entries_count;
+
+  for (UINT64 i = 0; i < new_mmap->size; ++i) {
+    UINTN offset = dscr_size * i;
+
+    EFI_MEMORY_DESCRIPTOR *d =
+        (EFI_MEMORY_DESCRIPTOR *)((UINT8 *)mmap + offset);
+
+    MmapEntryType t = MmapEntryType_NotAvailable;
+
+    switch (d->Type) {
+      case EfiLoaderCode:
+      case EfiLoaderData:
+      case EfiBootServicesCode:
+      case EfiBootServicesData:
+      case EfiConventionalMemory:
+        t = MmapEntryType_Available;
+        break;
+
+      default:
+        t = MmapEntryType_NotAvailable;
+        break;
+    }
+
+    new_mmap->entries[i].addr = d->PhysicalStart;
+
+    new_mmap->entries[i].size = d->NumberOfPages * SIZE_4KB;
+
+    new_mmap->entries[i].type = t;
+  }
+
+  *OutNewMap = new_mmap;
+  return EFI_SUCCESS;
+}
+
+/**
+  Вывести перепакованную карту памяти.
+**/
+VOID
+PrintMemoryMap(
+  Mmap *mmap
+)
+{
+  Print(L"Memory map entries count: %lu\r\n", mmap->size);
+  Print(L"---------------------------------------------------------\r\n");
+  Print(L"StartAddr         Size              Type\r\n");
+  Print(L"---------------------------------------------------------\r\n");
+
+  for (UINT64 i = 0; i < mmap->size; ++i) {
+    Print(
+      L"%016lx %016lx %d\r\n",
+      mmap->entries[i].addr,
+      mmap->entries[i].size,
+      mmap->entries[i].type
+    );
+  }
+}
+
 EFI_STATUS
 EFIAPI
-UefiMain (
-  IN EFI_HANDLE        ImageHandle,   // Дескриптор образа этого приложения
-  IN EFI_SYSTEM_TABLE  *SystemTable   // Указатель на системную таблицу UEFI
-  )
+UefiMain(
+  IN EFI_HANDLE ImageHandle,
+  IN EFI_SYSTEM_TABLE *SystemTable
+)
 {
-  EFI_STATUS            Status;            // Переменная для кодов возврата из вызовов UEFI
-  EFI_MEMORY_DESCRIPTOR *MemMap = NULL;    // Указатель на буфер с картой памяти
-  UINTN                 MemMapSize = 0;    // Размер буфера под карту памяти (в байтах)
-  UINTN                 MapKey;            // Ключ карты памяти (используется для ExitBootServices)
-  UINTN                 DescriptorSize;    // Размер структуры EFI_MEMORY_DESCRIPTOR
-  UINT32                DescriptorVersion; // Версия структуры дескриптора
+  EFI_STATUS s;
 
+  EFI_MEMORY_DESCRIPTOR *mmap = NULL;
+  UINTN mmap_size = 0;
+  UINTN mmap_key = 0;
+  UINTN dscr_size = 0;
+  UINT32 dscr_vers = 0;
 
+  Mmap *new_mmap = NULL;
 
-  // 1. Первый вызов GetMemoryMap — узнать нужный размер буфера
-  // На вход MemMapSize = 0 и MemMap = NULL, поэтому ожидаем EFI_BUFFER_TOO_SMALL
-  Status = gBS->GetMemoryMap(
-              &MemMapSize,        // [in/out] размер буфера; 0 → вернётся нужный размер
-              MemMap,             // [out] буфер (пока NULL)
-              &MapKey,            // [out] ключ карты 
-              &DescriptorSize,    // [out] размер одной записи карты памяти
-              &DescriptorVersion  // [out] версия дескриптора
-            );
+  // Получаем карту памяти UEFI в цикле
+  s = GetUefiMemoryMap(
+        &mmap,
+        &mmap_size,
+        &mmap_key,
+        &dscr_size,
+        &dscr_vers
+      );
 
-  // Если вернулся не EFI_BUFFER_TOO_SMALL, значит что-то пошло не по "стандартному" сценарию:
-  if (Status != EFI_BUFFER_TOO_SMALL) {
-    Print(L"GetMemoryMap (probe) error: %r\r\n", Status);   // %r — форматтер для EFI_STATUS
-    return Status;                                          // Завершаем с ошибкой
+  if (EFI_ERROR(s)) {
+    Print(L"GetUefiMemoryMap error: %r\r\n", s);
+    return s;
   }
 
-  // небольшой запас к размеру карты памяти — плюс 2 дескриптора
-  // если между первым и вторым вызовом карта немного изменится
-  MemMapSize += 2 * DescriptorSize;
+  Print(L"Memory map retrieved successfully\r\n");
+  Print(L"mmap = %p\r\n", mmap);
+  Print(L"mmap_size = %lu, descriptor_size = %lu\r\n", mmap_size, dscr_size);
 
-
-  // 2. Выделяем память под карту
-  Status = gBS->AllocatePool(
-             EfiLoaderData,       // Тип выделяемой памяти (Loader Data)
-             MemMapSize,          // Сколько байт выделить
-             (VOID**)&MemMap      // Указатель на результат (EFI_MEMORY_DESCRIPTOR *)
-           );
-  if (EFI_ERROR(Status)) {        // Макрос EFI_ERROR проверяет, является ли код статусом ошибки
-    Print(L"AllocatePool error: %r\r\n", Status);
-    return Status;
+  // Перепаковываем карту памяти
+  s = ConvertMemoryMap(mmap, mmap_size, dscr_size, &new_mmap);
+  if (EFI_ERROR(s)) {
+    Print(L"ConvertMemoryMap error: %r\r\n", s);
+    gBS->FreePool(mmap);
+    return s;
   }
 
+  Print(L"New mmap = %p\r\n", new_mmap);
 
-  // 3. Второй вызов GetMemoryMap — уже с буфером
-  Status = gBS->GetMemoryMap(
-              &MemMapSize,        // [in/out] размер буфера на входе, фактический размер на выходе
-              MemMap,             // [out] заполненный буфер с дескрипторами
-              &MapKey,            // [out] ключ карты памяти
-              &DescriptorSize,    // [out] (вновь) размер дескриптора
-              &DescriptorVersion  // [out] версия дескриптора
-            );
-  if (EFI_ERROR(Status)) {
-    Print(L"GetMemoryMap error: %r\r\n", Status);
-    gBS->FreePool(MemMap);        // Освобождаем выделенную память перед выходом
-    return Status;
-  }
+  // Печатаем новую карту памяти
+  PrintMemoryMap(new_mmap);
 
-  
-  // 4. Перепаковываем в свою структуру и печатаем
-  UINTN EntryCount = MemMapSize / DescriptorSize; // Количество EFI_MEMORY_DESCRIPTOR в буфере
-  UINT8 *Walker = (UINT8*)MemMap;                 // Указатель-итератор по буферу в виде массива байт
+  // Освобождаем ресурсы
+  gBS->FreePool(new_mmap);
+  gBS->FreePool(mmap);
 
-
-  Print(L"Idx  Type  PhysStart          Pages    Attr\r\n");
-  Print(L"-------------------------------------------------------\r\n");
-
-  // Цикл по всем дескрипторам карты памяти
-  for (UINTN Index = 0; Index < EntryCount; Index++) {
-    EFI_MEMORY_DESCRIPTOR *Desc = (EFI_MEMORY_DESCRIPTOR*)Walker;
-
-    MY_MEMORY_REGION Region;
-    Region.Type      = Desc->Type;
-    Region.PhysStart = Desc->PhysicalStart;
-    Region.NumPages  = Desc->NumberOfPages;
-    Region.Attribute = Desc->Attribute;
-
-    // Печатаем одну строку таблицы с информацией об этом регионе
-    Print(
-      L"%3u  %4u  %016lx  %8lu  %lx\r\n",
-      Index,              // Номер записи
-      Region.Type,        // Тип региона (число)
-      Region.PhysStart,   // Физический стартовый адрес
-      Region.NumPages,    // Количество страниц
-      Region.Attribute    // Атрибуты региона
-    );
-    // Переходим к следующему дескриптору
-    Walker += DescriptorSize;
-  }
-  // Освобождаем память, выделенную под карту памяти
-  gBS->FreePool(MemMap);
-  // Возвращаем EFI_SUCCESS — успешное завершение приложения
   return EFI_SUCCESS;
 }
