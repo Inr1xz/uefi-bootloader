@@ -1,0 +1,31 @@
+[Defines]
+  INF_VERSION    = 0x00010025
+  BASE_NAME      = LoadFile
+  FILE_GUID      = 22222222-3333-4444-5555-666666666666
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = UefiMain
+
+[Sources]
+  LoadFile.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MySuperPkg/MySuperPkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  MemoryAllocationLib
+  BaseMemoryLib
+  BaseLib
+  PrintLib
+  DebugLib
+
+[Protocols]
+  # Указываем какие протоколы используются в этом модуле
+  gEfiSimpleFileSystemProtocolGuid
+
+[Guids]
+  gEfiFileInfoGuid

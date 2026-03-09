@@ -40,3 +40,4 @@
 # Components говорит какие INF-модули входят в сборку той платформы
   MySuperPkg/HelloWorld/HelloWorld.inf
   MySuperPkg/MemMap/MemMap.inf
+  MySuperPkg/LoadFile/LoadFile.inf
