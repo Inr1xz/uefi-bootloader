@@ -24,8 +24,9 @@
   DebugLib
 
 [Protocols]
-  # Указываем какие протоколы используются в этом модуле
+  # Указываем какие протоколы используются в этом модуле (GUID, который идентифицирует протокол)
   gEfiSimpleFileSystemProtocolGuid
 
 [Guids]
+  # Используемые идентификаторы (GUID)
   gEfiFileInfoGuid
