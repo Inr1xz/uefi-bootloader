@@ -4,6 +4,11 @@
 #include <Pi/PiMultiPhase.h>
 #include <Protocol/MpService.h>  
 
+/*
+Функция преобразует BOOLEAN в короткий текст для таблицы:
+TRUE  -> "Y"
+FALSE -> "N"
+*/
 STATIC
 CHAR16 *
 BoolToText (
@@ -21,12 +26,12 @@ UefiMain(
 )
 {
     EFI_STATUS Status;
-    EFI_MP_SERVICES_PROTOCOL *MpServices = NULL;
-    UINTN TotalProcessors = 0;
-    UINTN EnabledProcessors = 0;
+    EFI_MP_SERVICES_PROTOCOL *MpServices = NULL; // Указатель на протокол мультипроцессорных сервисов
+    UINTN TotalProcessors = 0;                   // Общее число логических процессоров в системе
+    UINTN EnabledProcessors = 0;                 // Сколько из них сейчас включено
 
     // 1. Найти протокол мультипроцессорных сервисов
-    Status = gBS->LocateProtocol(&gEfiMpServiceProtocolGuid, NULL, (VOID **)&MpServices);
+    Status = gBS->LocateProtocol(&gEfiMpServiceProtocolGuid, NULL, (VOID **)&MpServices); // (VOID **)&MpServices означает, что мы передаем адрес указателя 
     if (EFI_ERROR(Status)) {
         Print(L"Cannot locate MP Services Protocol: %r\n", Status);
         return Status;
@@ -40,75 +45,65 @@ UefiMain(
     }
 
     // 3. Заголовок таблицы
+    /*
+    Что выводим в таблице:
+    Idx      - номер процессора (индекс для GetProcessorInfo)
+    ProcessorId - аппаратный ID (на x86/x64 обычно Local APIC ID)
+    En/BSP/Hlth - краткие признаки: включен / является BSP (BSP - проццессор который первый начинает выполнять код при запуске системы) / здоров
+    StatusFlag  - те же признаки в битовой маске
+    Pkg/Core/Thr - базовая топология (пакет/ядро/поток)
+    */
     Print(L"\nTotal processors: %u, Enabled processors: %u\n", TotalProcessors, EnabledProcessors);
-    Print(L"-----------------------------------------------------------------------------------------------------------------------------------\r\n");
-    Print(L"Idx | ProcessorId           | En | BSP | Hlth | StatusFlag  | Pkg | Core | Thr | ExPkg | ExMod | ExTile | ExDie | ExCore | ExThr |\r\n");
-    Print(L"-----------------------------------------------------------------------------------------------------------------------------------\r\n");
+    Print(L"-----------------------------------------------------------------------------------------\r\n");
+    Print(L"Idx | ProcessorId         | En | BSP | Hlth | StatusFlag  | Pkg | Core | Thr |\r\n");
+    Print(L"-----------------------------------------------------------------------------------------\r\n");
 
     // 4. Вывод информации по каждому процессору
     for (UINTN i = 0; i < TotalProcessors; i++) {
-        EFI_PROCESSOR_INFORMATION ProcInfo;
-        EFI_PROCESSOR_INFORMATION ProcInfoEx;
-        BOOLEAN HasExtendedTopology;
-        BOOLEAN Enabled;
-        BOOLEAN Bsp;
-        BOOLEAN Healthy;
+        EFI_PROCESSOR_INFORMATION ProcInfo; // Базовая информация по CPU
+        BOOLEAN Enabled;                    // PROCESSOR_ENABLED_BIT
+        BOOLEAN Bsp;                        // PROCESSOR_AS_BSP_BIT
+        BOOLEAN Healthy;                    // PROCESSOR_HEALTH_STATUS_BIT
 
+        // Запрашиваем базовую информацию о процессоре по его индексу
         Status = MpServices->GetProcessorInfo(MpServices, i, &ProcInfo);
         if (EFI_ERROR(Status)) {
             Print(L"Processor %u: info not available\n", i);
             continue;
         }
 
+        // Разбираем биты состояния в удобный вид (Y/N)
         Enabled = (ProcInfo.StatusFlag & PROCESSOR_ENABLED_BIT) != 0;
         Bsp     = (ProcInfo.StatusFlag & PROCESSOR_AS_BSP_BIT) != 0;
         Healthy = (ProcInfo.StatusFlag & PROCESSOR_HEALTH_STATUS_BIT) != 0;
 
-        Status = MpServices->GetProcessorInfo(MpServices, i | CPU_V2_EXTENDED_TOPOLOGY, &ProcInfoEx);
-        HasExtendedTopology = !EFI_ERROR(Status);
-
-        if (HasExtendedTopology) {
-            Print(
-              L"%3u | 0x%016lx | %2s | %3s | %4s | 0x%08x  | %3u | %4u | %3u | %5u | %5u | %6u | %5u | %6u | %5u |\n",
-              i,
-              ProcInfo.ProcessorId,
-              BoolToText(Enabled),
-              BoolToText(Bsp),
-              BoolToText(Healthy),
-              ProcInfo.StatusFlag,
-              ProcInfo.Location.Package,
-              ProcInfo.Location.Core,
-              ProcInfo.Location.Thread,
-              ProcInfoEx.ExtendedInformation.Location2.Package,
-              ProcInfoEx.ExtendedInformation.Location2.Module,
-              ProcInfoEx.ExtendedInformation.Location2.Tile,
-              ProcInfoEx.ExtendedInformation.Location2.Die,
-              ProcInfoEx.ExtendedInformation.Location2.Core,
-              ProcInfoEx.ExtendedInformation.Location2.Thread
-              );
-        } else {
-            Print(
-              L"%3u | 0x%016lx | %2s | %3s | %4s | 0x%08x  | %3u | %4u | %3u | %5s | %5s | %6s | %5s | %6s | %5s |\n",
-              i,
-              ProcInfo.ProcessorId,
-              BoolToText(Enabled),
-              BoolToText(Bsp),
-              BoolToText(Healthy),
-              ProcInfo.StatusFlag,
-              ProcInfo.Location.Package,
-              ProcInfo.Location.Core,
-              ProcInfo.Location.Thread,
-              L"-",
-              L"-",
-              L"-",
-              L"-",
-              L"-",
-              L"-"
-              );
-        }
+        /*
+        Формат вывода по колонкам:
+        %3u       -> Idx (индекс CPU)
+        0x%016lx  -> ProcessorId (hex, 16 символов, с нулями слева)
+        %2s       -> En   ("Y"/"N")
+        %3s       -> BSP  ("Y"/"N")
+        %4s       -> Hlth ("Y"/"N")
+        0x%08x    -> StatusFlag (hex, 8 символов, с нулями слева)
+        %3u       -> Pkg
+        %4u       -> Core
+        %3u       -> Thr
+        */
+        Print(
+          L"%3u | 0x%016lx | %2s | %3s | %4s | 0x%08x  | %3u | %4u | %3u |\n",
+          i,
+          ProcInfo.ProcessorId,
+          BoolToText(Enabled),
+          BoolToText(Bsp),
+          BoolToText(Healthy),
+          ProcInfo.StatusFlag,
+          ProcInfo.Location.Package,
+          ProcInfo.Location.Core,
+          ProcInfo.Location.Thread
+          );
     }
 
-    Print(L"-----------------------------------------------------------------------------------------------------------------------------------\n\n");
+    Print(L"-----------------------------------------------------------------------------------------\n\n");
 
     return EFI_SUCCESS;
 }
