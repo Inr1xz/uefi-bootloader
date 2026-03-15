@@ -33,14 +33,14 @@ UefiMain(
     // 1. Найти протокол мультипроцессорных сервисов
     Status = gBS->LocateProtocol(&gEfiMpServiceProtocolGuid, NULL, (VOID **)&MpServices); // (VOID **)&MpServices означает, что мы передаем адрес указателя 
     if (EFI_ERROR(Status)) {
-        Print(L"Cannot locate MP Services Protocol: %r\n", Status);
+        Print(L"Cannot locate MP Services Protocol: %r\r\n", Status);
         return Status;
     }
 
     // 2. Получить количество процессоров
     Status = MpServices->GetNumberOfProcessors(MpServices, &TotalProcessors, &EnabledProcessors);
     if (EFI_ERROR(Status)) {
-        Print(L"GetNumberOfProcessors failed: %r\n", Status);
+        Print(L"GetNumberOfProcessors failed: %r\r\n", Status);
         return Status;
     }
 
@@ -53,7 +53,7 @@ UefiMain(
     StatusFlag  - те же признаки в битовой маске
     Pkg/Core/Thr - базовая топология (пакет/ядро/поток)
     */
-    Print(L"\nTotal processors: %u, Enabled processors: %u\n", TotalProcessors, EnabledProcessors);
+    Print(L"\r\nTotal processors: %u, Enabled processors: %u\r\n", TotalProcessors, EnabledProcessors);
     Print(L"-----------------------------------------------------------------------------------------\r\n");
     Print(L"Idx | ProcessorId         | En | BSP | Hlth | StatusFlag  | Pkg | Core | Thr |\r\n");
     Print(L"-----------------------------------------------------------------------------------------\r\n");
@@ -68,7 +68,7 @@ UefiMain(
         // Запрашиваем базовую информацию о процессоре по его индексу
         Status = MpServices->GetProcessorInfo(MpServices, i, &ProcInfo);
         if (EFI_ERROR(Status)) {
-            Print(L"Processor %u: info not available\n", i);
+            Print(L"Processor %u: info not available\r\n", i);
             continue;
         }
 
@@ -90,7 +90,7 @@ UefiMain(
         %3u       -> Thr
         */
         Print(
-          L"%3u | 0x%016lx | %2s | %3s | %4s | 0x%08x  | %3u | %4u | %3u |\n",
+          L"%3u | 0x%016lx | %2s | %3s | %4s | 0x%08x  | %3u | %4u | %3u |\r\n",
           i,
           ProcInfo.ProcessorId,
           BoolToText(Enabled),
@@ -103,7 +103,7 @@ UefiMain(
           );
     }
 
-    Print(L"-----------------------------------------------------------------------------------------\n\n");
+    Print(L"-----------------------------------------------------------------------------------------\r\n\r\n");
 
     return EFI_SUCCESS;
 }
