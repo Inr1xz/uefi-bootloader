@@ -41,3 +41,4 @@
   MySuperPkg/HelloWorld/HelloWorld.inf
   MySuperPkg/MemMap/MemMap.inf
   MySuperPkg/LoadFile/LoadFile.inf
+  MySuperPkg/LoadCpuInfo/LoadCpuInfo.inf

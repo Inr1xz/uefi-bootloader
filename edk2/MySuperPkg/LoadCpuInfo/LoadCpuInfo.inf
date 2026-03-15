@@ -1,0 +1,27 @@
+[Defines]
+  INF_VERSION    = 0x00010025
+  BASE_NAME      = LoadCpuInfo
+  FILE_GUID      = 55555555-6666-7777-8888-999999999999
+  MODULE_TYPE    = UEFI_APPLICATION
+  VERSION_STRING = 1.0
+  ENTRY_POINT    = UefiMain
+
+[Sources]
+  LoadCpuInfo.c
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MySuperPkg/MySuperPkg.dec
+
+[LibraryClasses]
+  UefiApplicationEntryPoint
+  UefiLib
+  UefiBootServicesTableLib
+  BaseLib
+  PrintLib
+  MemoryAllocationLib
+  BaseMemoryLib
+  DebugLib
+
+[Protocols]
+  gEfiMpServiceProtocolGuid
