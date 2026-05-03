@@ -1,0 +1,29 @@
+[Defines]
+  INF_VERSION                    = 0x00010005
+  BASE_NAME                      = LabExitBs
+  FILE_GUID                      = c16c9c61-48d9-4a98-b155-8c3b4c4e4265
+  MODULE_TYPE                    = UEFI_APPLICATION
+  VERSION_STRING                 = 1.0
+  ENTRY_POINT                    = UefiMain
+
+[Sources]
+  main.c
+
+
+[Packages]
+  MdePkg/MdePkg.dec
+  MdeModulePkg/MdeModulePkg.dec
+
+[LibraryClasses]
+  UefiBootServicesTableLib
+  UefiApplicationEntryPoint
+  DebugLib
+  PrintLib
+  UefiLib
+  MemoryAllocationLib
+  DebugLib
+  BaseMemoryLib
+  BaseLib
+  UefiBootServicesTableLib
+  DevicePathLib
+  UefiRuntimeServicesTableLib
