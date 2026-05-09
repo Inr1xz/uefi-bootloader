@@ -41,3 +41,5 @@ processor_init.inc: processor_init
 processor_init: processor_init.nasm
 	nasm -f bin processor_init.nasm
 
+font.inc: font-gen.py
+	python3 font-gen.py > font.inc
