@@ -35,6 +35,9 @@ u8 get_self_apic_id(void);
 #define STATUS_Y 120
 #define TEXT_LINE_GAP 8
 
+static volatile u8 cpu_alive[256];
+static volatile u8 ap_startup_was_called = 0;
+
 void screen_clear(VideoBufferInfo *video, u32 color) {
   u64 h = info->video.height;
   u64 w = info->video.width;
@@ -94,6 +97,29 @@ void screen_draw_text(VideoBufferInfo *video, u64 x, u64 y, const char *s) {
   }
 }
 
+void mark_cpu_alive(u8 apic_id) {
+  cpu_alive[apic_id] = 1;
+}
+
+void mark_current_cpu_alive(void) {
+  mark_cpu_alive(get_self_apic_id());
+}
+
+u8 count_alive_processors(void) {
+  u8 alive = 0;
+  u8 total = info->processors.size;
+
+  for (u8 i = 0; i < total; ++i) {
+    u8 apic_id = info->processors.ids[i];
+
+    if (cpu_alive[apic_id]) {
+      ++alive;
+    }
+  }
+
+  return alive;
+}
+
 static char status_buffer[STATUS_BUFFER_SIZE];
 
 void build_kernel_status_buffer(void) {
@@ -151,7 +177,7 @@ void build_kernel_status_buffer(void) {
 
   BUF_PUTS("MINI-KERNEL STATUS\n");
   BUF_PUTS("------------------\n");
-  BUF_PUTS("BOOT PATH: UEFI -> EXIT BOOT SERVICES -> KERNEL\n");
+//  BUF_PUTS("BOOT PATH: UEFI -> EXIT BOOT SERVICES -> KERNEL\n");
 
   BUF_PUTS("KERNEL ENTRY: ");
   BUF_PUT_HEX(0x2000);
@@ -174,7 +200,7 @@ void build_kernel_status_buffer(void) {
   BUF_PUTC('\n');
 
   BUF_PUTS("BUFFER LOGGER: OK\n");
-  BUF_PUTS("MULTILINE TEXT: OK\n");
+//  BUF_PUTS("MULTILINE TEXT: OK\n");
 
   BUF_PUTS("WIDTH: ");
   BUF_PUT_DEC(info->video.width);
@@ -185,8 +211,20 @@ void build_kernel_status_buffer(void) {
   BUF_PUTC('\n');
 
   BUF_PUTS("CPU COUNT: ");
+  BUF_PUT_DEC(count_alive_processors());
+  BUF_PUTC('/');
   BUF_PUT_DEC(info->processors.size);
   BUF_PUTC('\n');
+
+  BUF_PUTS("AP STARTUP: ");
+
+  if (ap_startup_was_called) {
+    BUF_PUTS("ENABLED");
+  } else {
+    BUF_PUTS("DISABLED");
+  }
+
+BUF_PUTC('\n');
 
   BUF_PUTS("BSP APIC ID: ");
   BUF_PUT_DEC(get_self_apic_id());
@@ -206,7 +244,7 @@ void build_kernel_status_buffer(void) {
 
   BUF_PUTC('\n');
 
-  BUF_PUTS("HEX FORMATTER: OK\n");
+//  BUF_PUTS("HEX FORMATTER: OK\n");
   BUF_PUTS("APIC IDS: OK\n");
   BUF_PUTS("BSP APIC ID: OK\n");
   BUF_PUTS("STATUS: OK\n");
@@ -268,13 +306,15 @@ int main() {
   //   startup_processors();
   // }
 
-  screen_clear(&info->video, 0x00000000);
+  mark_current_cpu_alive();
+
+  screen_clear(&info->video, COLOR_BACKGROUND);
 
   // screen_draw_char(&info->video, 100, 100, '&');
 
   build_kernel_status_buffer();
 
-  screen_draw_text(&info->video, 100, 120, status_buffer);
+  screen_draw_text(&info->video, STATUS_X, STATUS_Y, status_buffer);
 
   // u64 w = info->video.width;
   // u64 h = info->video.height;
