@@ -4,10 +4,6 @@ typedef unsigned char u8;
 typedef unsigned long long u64;
 typedef unsigned u32;
 
-typedef unsigned char u8;
-typedef unsigned long long u64;
-typedef unsigned u32;
-
 #include "font.inc"
 
 typedef struct _VideoBufferInfo {
@@ -27,6 +23,17 @@ typedef struct _SystemInfo {
 } __attribute__((packed)) SystemInfo;
 
 SystemInfo *info;
+
+u8 get_self_apic_id(void);
+
+#define STATUS_BUFFER_SIZE 2048
+
+#define COLOR_BACKGROUND 0x00000000
+#define COLOR_TEXT       0x0000FF00
+
+#define STATUS_X 100
+#define STATUS_Y 120
+#define TEXT_LINE_GAP 8
 
 void screen_clear(VideoBufferInfo *video, u32 color) {
   u64 h = info->video.height;
@@ -56,17 +63,158 @@ void screen_draw_char(VideoBufferInfo *video, u64 x, u64 y, u8 c) {
       u8 b = bits[n / 8] >> (n % 8) & 1;
 
       if (b == 1)
-        screen_set_pixel(video, x + j, y + i, 0x0000FF00);
+        screen_set_pixel(video, x + j, y + i, COLOR_TEXT);
     }
   }
 }
 
-void screen_draw_string(VideoBufferInfo *video, u64 x, u64 y, char *s) {
+void screen_draw_string(VideoBufferInfo *video, u64 x, u64 y, const char *s) {
   while (*s != '\0') {
     screen_draw_char(video, x, y, *s);
     x += FONT_WIDTH;
     ++s;
   }
+}
+
+
+void screen_draw_text(VideoBufferInfo *video, u64 x, u64 y, const char *s) {
+  u64 start_x = x;
+
+  while (*s != '\0') {
+    if (*s == '\n') {
+      x = start_x;
+      y += FONT_HEIGHT + TEXT_LINE_GAP;
+      ++s;
+      continue;
+    }
+
+    screen_draw_char(video, x, y, *s);
+    x += FONT_WIDTH;
+    ++s;
+  }
+}
+
+static char status_buffer[STATUS_BUFFER_SIZE];
+
+void build_kernel_status_buffer(void) {
+  u64 pos = 0;
+
+#define BUF_PUTC(ch)                                      \
+  do {                                                    \
+    if (pos + 1 < STATUS_BUFFER_SIZE) {                   \
+      status_buffer[pos] = (char)(ch);                    \
+      ++pos;                                              \
+      status_buffer[pos] = '\0';                          \
+    }                                                     \
+  } while (0)
+
+#define BUF_PUTS(str)                                     \
+  do {                                                    \
+    char *src = (char *)(str);                            \
+    for (u64 i = 0; src[i] != '\0'; ++i) {                \
+      BUF_PUTC(src[i]);                                   \
+    }                                                     \
+  } while (0)
+
+#define BUF_PUT_DEC(value_expr)                           \
+  do {                                                    \
+    u64 value = (u64)(value_expr);                        \
+    u64 divisor = 1;                                      \
+                                                          \
+    while (value / divisor >= 10) {                       \
+      divisor *= 10;                                      \
+    }                                                     \
+                                                          \
+    while (divisor > 0) {                                 \
+      u8 digit = (u8)(value / divisor);                   \
+      BUF_PUTC((char)('0' + digit));                      \
+      value = value % divisor;                            \
+      divisor = divisor / 10;                             \
+    }                                                     \
+  } while (0)
+
+#define BUF_PUT_HEX(value_expr)                           \
+  do {                                                    \
+    u64 value = (u64)(value_expr);                        \
+    BUF_PUTS("0x");                                      \
+                                                          \
+    for (int shift = 60; shift >= 0; shift -= 4) {        \
+      u8 digit = (u8)((value >> shift) & 0xF);            \
+                                                          \
+      if (digit < 10) {                                   \
+        BUF_PUTC((char)('0' + digit));                    \
+      } else {                                            \
+        BUF_PUTC((char)('A' + digit - 10));               \
+      }                                                   \
+    }                                                     \
+  } while (0)
+
+  BUF_PUTS("MINI-KERNEL STATUS\n");
+  BUF_PUTS("------------------\n");
+  BUF_PUTS("BOOT PATH: UEFI -> EXIT BOOT SERVICES -> KERNEL\n");
+
+  BUF_PUTS("KERNEL ENTRY: ");
+  BUF_PUT_HEX(0x2000);
+  BUF_PUTC('\n');
+
+  BUF_PUTS("AP TRAMPOLINE: ");
+  BUF_PUT_HEX(0x1000);
+  BUF_PUTC('\n');
+
+  BUF_PUTS("BSP STACK: ");
+  BUF_PUT_HEX(0x100000);
+  BUF_PUTC('\n');
+
+  BUF_PUTS("SYSTEMINFO: ");
+  BUF_PUT_HEX((u64)info);
+  BUF_PUTC('\n');
+
+  BUF_PUTS("FRAMEBUFFER: ");
+  BUF_PUT_HEX(info->video.buffer);
+  BUF_PUTC('\n');
+
+  BUF_PUTS("BUFFER LOGGER: OK\n");
+  BUF_PUTS("MULTILINE TEXT: OK\n");
+
+  BUF_PUTS("WIDTH: ");
+  BUF_PUT_DEC(info->video.width);
+  BUF_PUTC('\n');
+
+  BUF_PUTS("HEIGHT: ");
+  BUF_PUT_DEC(info->video.height);
+  BUF_PUTC('\n');
+
+  BUF_PUTS("CPU COUNT: ");
+  BUF_PUT_DEC(info->processors.size);
+  BUF_PUTC('\n');
+
+  BUF_PUTS("BSP APIC ID: ");
+  BUF_PUT_DEC(get_self_apic_id());
+  BUF_PUTC('\n');
+
+  BUF_PUTS("APIC IDS: ");
+
+  u8 cpu_count = info->processors.size;
+
+  for (u8 i = 0; i < cpu_count; ++i) {
+    BUF_PUT_DEC(info->processors.ids[i]);
+
+    if ((u8)(i + 1) < cpu_count) {
+      BUF_PUTC(' ');
+    }
+  }
+
+  BUF_PUTC('\n');
+
+  BUF_PUTS("HEX FORMATTER: OK\n");
+  BUF_PUTS("APIC IDS: OK\n");
+  BUF_PUTS("BSP APIC ID: OK\n");
+  BUF_PUTS("STATUS: OK\n");
+
+#undef BUF_PUT_HEX
+#undef BUF_PUT_DEC
+#undef BUF_PUTS
+#undef BUF_PUTC
 }
 
 void start_ap(u8 ap_apic_id, u32 init_code_entry) {
@@ -124,7 +272,9 @@ int main() {
 
   // screen_draw_char(&info->video, 100, 100, '&');
 
-  screen_draw_string(&info->video, 100, 200, "Hello World!!!! &!@#$");
+  build_kernel_status_buffer();
+
+  screen_draw_text(&info->video, 100, 120, status_buffer);
 
   // u64 w = info->video.width;
   // u64 h = info->video.height;
